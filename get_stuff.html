@@ -19,66 +19,72 @@
       margin: 0.5em 0;
       font-size: 1em;
     }
-    #downloadLink {
+    #fallbackLink {
       display: none;
       margin-top: 1em;
       word-break: break-all;
+      color: blue;
     }
     code { background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 4px; }
   </style>
 </head>
 <body>
   <h2>Chrome Extension Downloader</h2>
-  <p>Enter the 32-char <code>Extension ID</code>, then click:</p>
+  <p>Paste the 32-char <code>Extension ID</code> and click:</p>
   <input id="extId" placeholder="e.g. aapbdbdomjkkjkaonfhkkikfgjllcleb">
   <button id="downloadBtn">Download .CRX</button>
-  <a id="downloadLink" target="_blank"></a>
+  <a id="fallbackLink" target="_blank">If download doesn’t start, click here</a>
 
   <script>
-    async function downloadCRX(extId) {
-      const uaMatch = navigator.userAgent.match(/Chrome\/(\d+)\./);
-      const chromeMajor = uaMatch ? uaMatch[1] : '100';
-      const prodversion = chromeMajor + '.0.0.0.0';
-      const params = new URLSearchParams({
-        response: 'redirect',
-        prodversion,
-        x: `id=${extId}&installsource=ondemand&uc`
-      });
-      const url = 'https://clients2.google.com/service/update2/crx?' + params;
-
-      try {
-        const res = await fetch(url, { mode: 'cors' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-
-        // create a hidden <a> to force download
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = extId + '.crx';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
-      } catch (err) {
-        console.error('Fetch failed:', err);
-        // fallback: open in new tab
-        const win = window.open(url, '_blank');
-        if (!win) {
-          const link = document.getElementById('downloadLink');
-          link.href = url;
-          link.textContent = 'Pop-up blocked — click here to download .crx';
-          link.style.display = 'block';
-        }
-      }
+    async function fetchAndSave(url, filename) {
+      const res = await fetch(url, { mode: 'cors' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
     }
 
-    document.getElementById('downloadBtn').onclick = () => {
+    document.getElementById('downloadBtn').onclick = async () => {
       const id = document.getElementById('extId').value.trim();
       if (!/^[a-p0-9]{32}$/i.test(id)) {
         return alert('❌ Invalid Extension ID (must be 32 hex chars).');
       }
-      downloadCRX(id);
+
+      // build the update URL
+      const ua = navigator.userAgent.match(/Chrome\/(\d+)\./);
+      const prodversion = (ua ? ua[1] : '100') + '.0.0.0.0';
+      const params = new URLSearchParams({
+        response: 'redirect',
+        prodversion,
+        x: `id=${id}&installsource=ondemand&uc`
+      });
+      const directUrl = 'https://clients2.google.com/service/update2/crx?' + params;
+      const fallbackLink = document.getElementById('fallbackLink');
+      fallbackLink.style.display = 'none';
+
+      try {
+        // attempt direct fetch + download
+        await fetchAndSave(directUrl, id + '.crx');
+      } catch (err) {
+        console.warn('Direct fetch failed:', err, '\n→ retrying via CORS-proxy');
+        // use AllOrigins public proxy
+        const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(directUrl);
+        try {
+          await fetchAndSave(proxyUrl, id + '.crx');
+        } catch (err2) {
+          console.error('Proxy fetch failed:', err2);
+          // give user a manual link
+          fallbackLink.href = directUrl;
+          fallbackLink.textContent = 'Download via direct link (click here)';
+          fallbackLink.style.display = 'block';
+        }
+      }
     };
   </script>
 </body>
