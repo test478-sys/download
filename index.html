@@ -6,12 +6,12 @@
   <style>
     body {
       font-family: sans-serif;
-      max-width: 400px;
+      max-width: 440px;
       margin: 3em auto;
       padding: 1em;
-      border: 1px solid #ddd;
+      border: 1px solid #ccc;
       border-radius: 8px;
-      line-height: 1.4;
+      line-height: 1.5;
     }
     input, button {
       width: 100%;
@@ -19,27 +19,38 @@
       margin: 0.5em 0;
       font-size: 1em;
     }
-    #fallbackLink {
+    #manualLink {
       display: none;
       margin-top: 1em;
       word-break: break-all;
       color: blue;
     }
-    code { background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 4px; }
+    code {
+      background: #f4f4f4;
+      padding: 0.2em 0.4em;
+      border-radius: 4px;
+    }
+    .note {
+      font-size: 0.9em;
+      color: #555;
+    }
   </style>
 </head>
 <body>
   <h2>Chrome Extension Downloader</h2>
-  <p>Paste the 32-char <code>Extension ID</code> and click:</p>
-  <input id="extId" placeholder="e.g. aapbdbdomjkkjkaonfhkkikfgjllcleb">
+  <p>Enter the 32-character <code>Extension ID</code> and click Download:</p>
+  <input id="extId" placeholder="e.g. aapbdbdomjkkjkaonfhkkikfgjllcleb" />
   <button id="downloadBtn">Download .CRX</button>
-  <a id="fallbackLink" target="_blank">If download doesn’t start, click here</a>
+  <a id="manualLink" target="_blank">⎘ Click here if download doesn’t start</a>
+  <p class="note">
+    Served over HTTP(S)? Public proxies can be flaky. If all else fails, copy the manual link.
+  </p>
 
   <script>
-    async function fetchAndSave(url, filename) {
-      const res = await fetch(url, { mode: 'cors' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const blob = await res.blob();
+    async function tryFetch(url, filename) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
@@ -53,38 +64,46 @@
     document.getElementById('downloadBtn').onclick = async () => {
       const id = document.getElementById('extId').value.trim();
       if (!/^[a-p0-9]{32}$/i.test(id)) {
-        return alert('❌ Invalid Extension ID (must be 32 hex chars).');
+        return alert('Invalid Extension ID (32 hex chars).');
       }
 
-      // build the update URL
+      // Build the correct CRX URL (four-part version string)
       const ua = navigator.userAgent.match(/Chrome\/(\d+)\./);
-      const prodversion = (ua ? ua[1] : '100') + '.0.0.0.0';
+      const major = ua ? ua[1] : '100';
+      const prodversion = `${major}.0.0.0`;
       const params = new URLSearchParams({
         response: 'redirect',
         prodversion,
         x: `id=${id}&installsource=ondemand&uc`
       });
-      const directUrl = 'https://clients2.google.com/service/update2/crx?' + params;
-      const fallbackLink = document.getElementById('fallbackLink');
-      fallbackLink.style.display = 'none';
+      const crxUrl = `https://clients2.google.com/service/update2/crx?${params}`;
 
-      try {
-        // attempt direct fetch + download
-        await fetchAndSave(directUrl, id + '.crx');
-      } catch (err) {
-        console.warn('Direct fetch failed:', err, '\n→ retrying via CORS-proxy');
-        // use AllOrigins public proxy
-        const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(directUrl);
+      // Here's an expanded list of proxies to try
+      const proxies = [
+        '',                                              // direct
+        'https://corsproxy.io/?',                       // corsproxy.io
+        'https://thingproxy.freeboard.io/fetch/',        // thingproxy
+        'https://api.allorigins.win/raw?url=',           // allorigins
+        'https://api.codetabs.com/v1/proxy?quest=',      // codetabs
+        'https://cors.bridged.cc/'                       // bridged.cc
+      ];
+
+      const manual = document.getElementById('manualLink');
+      manual.style.display = 'none';
+      manual.href = crxUrl;
+
+      // Try each (empty prefix = direct fetch)
+      for (const prefix of proxies) {
         try {
-          await fetchAndSave(proxyUrl, id + '.crx');
-        } catch (err2) {
-          console.error('Proxy fetch failed:', err2);
-          // give user a manual link
-          fallbackLink.href = directUrl;
-          fallbackLink.textContent = 'Download via direct link (click here)';
-          fallbackLink.style.display = 'block';
+          await tryFetch(prefix + crxUrl, `${id}.crx`);
+          return; // success!
+        } catch (err) {
+          console.warn(`Attempt via "${prefix || 'direct'}" failed:`, err);
         }
       }
+
+      // All attempts exhausted → show manual link
+      manual.style.display = 'block';
     };
   </script>
 </body>
