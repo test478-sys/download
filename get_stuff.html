@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chrome Extension Downloader</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 400px;
+      margin: 3em auto;
+      padding: 1em;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      line-height: 1.4;
+    }
+    input, button {
+      width: 100%;
+      padding: 0.6em;
+      margin: 0.5em 0;
+      font-size: 1em;
+    }
+    #downloadLink {
+      display: none;
+      margin-top: 1em;
+      word-break: break-all;
+    }
+    code { background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h2>Chrome Extension Downloader</h2>
+  <p>Enter the 32-char <code>Extension ID</code>, then click:</p>
+  <input id="extId" placeholder="e.g. aapbdbdomjkkjkaonfhkkikfgjllcleb">
+  <button id="downloadBtn">Download .CRX</button>
+  <a id="downloadLink" target="_blank"></a>
+
+  <script>
+    async function downloadCRX(extId) {
+      const uaMatch = navigator.userAgent.match(/Chrome\/(\d+)\./);
+      const chromeMajor = uaMatch ? uaMatch[1] : '100';
+      const prodversion = chromeMajor + '.0.0.0.0';
+      const params = new URLSearchParams({
+        response: 'redirect',
+        prodversion,
+        x: `id=${extId}&installsource=ondemand&uc`
+      });
+      const url = 'https://clients2.google.com/service/update2/crx?' + params;
+
+      try {
+        const res = await fetch(url, { mode: 'cors' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+
+        // create a hidden <a> to force download
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = extId + '.crx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      } catch (err) {
+        console.error('Fetch failed:', err);
+        // fallback: open in new tab
+        const win = window.open(url, '_blank');
+        if (!win) {
+          const link = document.getElementById('downloadLink');
+          link.href = url;
+          link.textContent = 'Pop-up blocked — click here to download .crx';
+          link.style.display = 'block';
+        }
+      }
+    }
+
+    document.getElementById('downloadBtn').onclick = () => {
+      const id = document.getElementById('extId').value.trim();
+      if (!/^[a-p0-9]{32}$/i.test(id)) {
+        return alert('❌ Invalid Extension ID (must be 32 hex chars).');
+      }
+      downloadCRX(id);
+    };
+  </script>
+</body>
+</html>
